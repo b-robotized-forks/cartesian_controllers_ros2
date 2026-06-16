@@ -171,7 +171,7 @@ bool VanillaCartesianImpedanceRule::compute_controls(
   } else {
     conditioning_J = J_svd.singularValues()(0) / J_svd.singularValues()(dims - 1);
   }
-  if (conditioning_J > 40) {
+  if (conditioning_J > 100) {
     success = false;
     std::cerr << "J_svd.singularValues() = " << J_svd.singularValues().transpose() << std::endl;
     RCLCPP_ERROR(
@@ -189,7 +189,27 @@ bool VanillaCartesianImpedanceRule::compute_controls(
       conditioning_J
     );
   }
-  J_pinv_ = (J_.transpose() * J_ + alpha_pinv_ * I_joint_space_).inverse() * J_.transpose();
+  double adaptive_alpha_pinv = alpha_pinv_;
+  if (conditioning_J > 80.0 && adaptive_alpha_pinv < 0.5) {
+    adaptive_alpha_pinv = 0.5;
+  } else if (conditioning_J > 50.0 && adaptive_alpha_pinv < 0.2) {
+    adaptive_alpha_pinv = 0.2;
+  } else if (conditioning_J > 20.0 && adaptive_alpha_pinv < 0.05) {
+    adaptive_alpha_pinv = 0.05;
+  }
+  if (adaptive_alpha_pinv > alpha_pinv_) {
+    RCLCPP_WARN_THROTTLE(
+      logger_,
+      internal_clock_,
+      5000,
+      "Increasing Jacobian pseudo-inverse damping from %lf to %lf "
+      "because condition number is %lf.",
+      alpha_pinv_,
+      adaptive_alpha_pinv,
+      conditioning_J
+    );
+  }
+  J_pinv_ = J_.transpose() * (J_ * J_.transpose() + adaptive_alpha_pinv * I_).inverse();
 
   if (!model_is_ok) {
     success = false;
@@ -251,12 +271,19 @@ bool VanillaCartesianImpedanceRule::compute_controls(
   // Nullspace objective for stability
   // ------------------------------------------------
   if (vic_input_data.activate_nullspace_control) {
-    RCLCPP_ERROR(
-      logger_,
-      "Nullspace control is not implemented in VanillaCartesianImpedanceRule!"
-    );
-    // TODO(anyone): implement nullspace control for impedance rule
-    success = false;
+    RCLCPP_DEBUG(logger_, "Cmd nullspace joint acc...");
+    nullspace_projection_ = I_joint_space_ - J_pinv_ * J_;
+    M_nullspace_.diagonal() = vic_input_data.nullspace_joint_inertia;
+    K_nullspace_.diagonal() = vic_input_data.nullspace_joint_stiffness;
+    D_nullspace_.diagonal() = vic_input_data.nullspace_joint_damping;
+    M_inv_nullspace_.diagonal() = M_nullspace_.diagonal().cwiseInverse();
+
+    auto error_position_nullspace =
+      vic_input_data.nullspace_desired_joint_positions - vic_input_data.joint_state_position;
+    vic_command_data.joint_command_acceleration +=
+      nullspace_projection_ * M_inv_nullspace_ * (
+        -D_nullspace_ * vic_input_data.joint_state_velocity +
+        K_nullspace_ * error_position_nullspace);
   } else {
     // Pure (small) damping in nullspace for stability
     RCLCPP_WARN_THROTTLE(
