@@ -64,6 +64,9 @@ private:
   Eigen::VectorXd raw_joint_command_effort_;
 
   double alpha_pinv_ = 0.001;
+  // Low-pass-filtered nullspace scale (EMA of manipulability-based fade).
+  // Initialized in compute_controls on first valid SVD.
+  double nullspace_scale_filtered_ = -1.0;
 
   // Nullspace solver
   Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> nullspace_projection_;

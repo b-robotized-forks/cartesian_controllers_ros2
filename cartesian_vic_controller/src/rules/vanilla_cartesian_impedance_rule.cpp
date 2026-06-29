@@ -16,8 +16,9 @@
 
 #include "cartesian_vic_controller/rules/vanilla_cartesian_impedance_rule.hpp"
 
+#include <algorithm>
 #include <cmath>
-#include <iostream>  // for debug purposes...
+#include <limits>
 
 #include "control_toolbox/filters.hpp"
 
@@ -57,7 +58,7 @@ bool VanillaCartesianImpedanceRule::compute_controls(
   bool success = true;
 
   // size_t num_joints = vic_state_.input_data.joint_state_position.size();
-  size_t dims = 6;  // 6 DoF
+  Eigen::Index dims = 6;  // 6 DoF
 
   if (dt <= 0.0) {
     RCLCPP_ERROR(logger_, "Sampling time should be positive, received %f", dt);
@@ -162,22 +163,28 @@ bool VanillaCartesianImpedanceRule::compute_controls(
   RCLCPP_DEBUG(logger_, "Computing J_pinv...");
   const Eigen::JacobiSVD<Eigen::MatrixXd> J_svd =
     Eigen::JacobiSVD<Eigen::MatrixXd>(J_, Eigen::ComputeThinU | Eigen::ComputeThinV);
-  double conditioning_J = 1000.0;
-  if (J_.cols() < 6) {
+  const auto singular_values = J_svd.singularValues();
+  const double sigma_max = singular_values.size() > 0 ? singular_values(0) : 0.0;
+  const double sigma_min =
+    singular_values.size() > 0 ? singular_values(singular_values.size() - 1) : 0.0;
+  const double manip = sigma_max > 1e-9 ?
+    std::clamp(sigma_min / sigma_max, 0.0, 1.0) : 0.0;
+  const double conditioning_J = manip > 1e-9 ?
+    1.0 / manip : std::numeric_limits<double>::infinity();
+  if (J_.cols() < dims) {
     RCLCPP_WARN_THROTTLE(
       logger_, internal_clock_, 5000, "Jacobian has only %lu columns, expecting at least 6!!!",
         J_.cols());
-    conditioning_J = J_svd.singularValues()(0) / J_svd.singularValues()(J_.cols() - 1);
-  } else {
-    conditioning_J = J_svd.singularValues()(0) / J_svd.singularValues()(dims - 1);
   }
   if (conditioning_J > 150.0) {
-    success = false;
-    std::cerr << "J_svd.singularValues() = " << J_svd.singularValues().transpose() << std::endl;
-    RCLCPP_ERROR(
+    RCLCPP_WARN_THROTTLE(
       logger_,
-      "Jacobian singularity detected (max(singular values)/min(singular values) = %lf)!",
-      conditioning_J
+      internal_clock_,
+      1000,
+      "Jacobian at/near singularity (condition = %lf, sigma_min = %lf). "
+      "Continuing with damped inverse and nullspace fade.",
+      conditioning_J,
+      sigma_min
     );
   } else if (conditioning_J > 15.0) {
     RCLCPP_WARN_THROTTLE(
@@ -189,12 +196,16 @@ bool VanillaCartesianImpedanceRule::compute_controls(
       conditioning_J
     );
   }
+  alpha_pinv_ = std::max(0.0, parameters_.dynamics.alpha);
   double adaptive_alpha_pinv = alpha_pinv_;
-  if (conditioning_J > 120.0 && adaptive_alpha_pinv < 0.10) {
-    adaptive_alpha_pinv = 0.10;
+  // Gentler DLS schedule. Earlier version over-damped at cond~30, making the
+  // controller unable to descend in normal poses. Bump damping only when truly
+  // near singularity, not for slightly poor conditioning.
+  if (conditioning_J > 120.0 && adaptive_alpha_pinv < 0.12) {
+    adaptive_alpha_pinv = 0.12;
   } else if (conditioning_J > 80.0 && adaptive_alpha_pinv < 0.05) {
     adaptive_alpha_pinv = 0.05;
-  } else if (conditioning_J > 40.0 && adaptive_alpha_pinv < 0.02) {
+  } else if (conditioning_J > 50.0 && adaptive_alpha_pinv < 0.02) {
     adaptive_alpha_pinv = 0.02;
   }
   if (adaptive_alpha_pinv > alpha_pinv_) {
@@ -278,12 +289,35 @@ bool VanillaCartesianImpedanceRule::compute_controls(
     D_nullspace_.diagonal() = vic_input_data.nullspace_joint_damping;
     M_inv_nullspace_.diagonal() = M_nullspace_.diagonal().cwiseInverse();
 
+    // Manipulability scaling: fade nullspace contribution as the Jacobian
+    // becomes ill-conditioned, so the projector does not amplify noise near
+    // singularities. manip = sigma_min / sigma_max in [0, 1]. Filter via
+    // exponential moving average so the scale does not chatter tick-to-tick,
+    // which would inject high-frequency joint commands and visible wiggle.
+    double nullspace_scale_raw = std::min(1.0, manip * 5.0);
+    if (nullspace_scale_filtered_ < 0.0) {
+      nullspace_scale_filtered_ = nullspace_scale_raw;
+    } else {
+      const double alpha = 0.05;  // ~20-tick time constant
+      nullspace_scale_filtered_ =
+        alpha * nullspace_scale_raw + (1.0 - alpha) * nullspace_scale_filtered_;
+    }
+    double nullspace_scale = nullspace_scale_filtered_;
+
     auto error_position_nullspace =
       vic_input_data.nullspace_desired_joint_positions - vic_input_data.joint_state_position;
     vic_command_data.joint_command_acceleration +=
-      nullspace_projection_ * M_inv_nullspace_ * (
+      nullspace_scale * nullspace_projection_ * M_inv_nullspace_ * (
         -D_nullspace_ * vic_input_data.joint_state_velocity +
         K_nullspace_ * error_position_nullspace);
+
+    // Throttled debug to surface what nullspace is doing each ~1 s at 1 kHz.
+    RCLCPP_DEBUG_THROTTLE(
+      logger_,
+      internal_clock_,
+      1000,
+      "nullspace: manip=%.3f scale_raw=%.3f scale_filt=%.3f cond=%.1f",
+      manip, nullspace_scale_raw, nullspace_scale_filtered_, conditioning_J);
   } else {
     // Pure (small) damping in nullspace for stability
     RCLCPP_WARN_THROTTLE(
@@ -293,6 +327,22 @@ bool VanillaCartesianImpedanceRule::compute_controls(
       "WARNING! nullspace impedance control is disabled!"
     );
     RCLCPP_DEBUG(logger_, "Cmd nullspace damping (joint acc)...");
+  }
+
+  // Safety clamp: per-joint acceleration limits prevent the controller from
+  // commanding huge swings when the Jacobian is poorly conditioned, even if the
+  // DLS damping has not fully kicked in. Joint 1 is the biggest offender for
+  // FR3 base-yaw flailing near workspace edges, so it gets the tightest cap.
+  if (vic_command_data.joint_command_acceleration.size() > 0) {
+    const double caps[7] = {6.0, 8.0, 8.0, 10.0, 12.0, 12.0, 12.0};  // rad/s^2
+    const size_t capped_joints = std::min(
+      static_cast<size_t>(vic_command_data.joint_command_acceleration.size()),
+      sizeof(caps) / sizeof(caps[0]));
+    for (size_t i = 0; i < capped_joints; ++i) {
+      double & a = vic_command_data.joint_command_acceleration(i);
+      if (a > caps[i]) a = caps[i];
+      else if (a < -caps[i]) a = -caps[i];
+    }
   }
 
   // Compute joint command effort from desired joint acc.
@@ -412,6 +462,7 @@ bool VanillaCartesianImpedanceRule::reset_rule__internal_storage(const size_t nu
   D_nullspace_ = \
     Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>::Zero(num_joints, num_joints);
   external_joint_torques_ = Eigen::VectorXd::Zero(num_joints);
+  nullspace_scale_filtered_ = -1.0;
   return true;
 }
 
