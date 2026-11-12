@@ -340,7 +340,7 @@ controller_interface::CallbackReturn CartesianVicController::on_configure(
       return CallbackReturn::FAILURE;
     }
     force_torque_sensor_ = std::make_unique<semantic_components::ForceTorqueSensor>(
-      semantic_components::ForceTorqueSensor(vic_->parameters_.ft_sensor.name));
+      vic_->parameters_.ft_sensor.name);
   }
 
   // Initialize external torque sensor semantic_component
