@@ -283,9 +283,7 @@ CartesianVicTeleopController::update(const rclcpp::Time & time, const rclcpp::Du
       // Update leader ref
       vic_->update_compliant_frame_trajectory(leader_vic_ref_);
       // Publish follower ref
-      follower_vic_ref_publisher_->lock();
-      follower_vic_ref_publisher_->msg_ = follower_vic_ref_;
-      follower_vic_ref_publisher_->unlockAndPublish();
+      follower_vic_ref_publisher_->try_publish(follower_vic_ref_);
     } else {
       RCLCPP_ERROR(
         get_node()->get_logger(),
@@ -322,9 +320,7 @@ CartesianVicTeleopController::update(const rclcpp::Time & time, const rclcpp::Du
       "Failed to retrieve teleop rule state as a ros2 msg!");
   } else {
     teleop_state_msg_.header.stamp = get_node()->get_clock()->now();
-    teleop_state_publisher_->lock();
-    teleop_state_publisher_->msg_ = teleop_state_msg_;
-    teleop_state_publisher_->unlockAndPublish();
+    teleop_state_publisher_->try_publish(teleop_state_msg_);
   }
 
   // Publish controller state
@@ -338,9 +334,7 @@ CartesianVicTeleopController::update(const rclcpp::Time & time, const rclcpp::Du
     return controller_interface::return_type::ERROR;
   } else {
     controller_state_msg_.header.stamp = get_node()->get_clock()->now();
-    state_publisher_->lock();
-    state_publisher_->msg_ = controller_state_msg_;
-    state_publisher_->unlockAndPublish();
+    state_publisher_->try_publish(controller_state_msg_);
   }
   return controller_interface::return_type::OK;
 }

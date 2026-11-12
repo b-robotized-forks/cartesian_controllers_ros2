@@ -84,6 +84,7 @@ protected:
   using StatePublisher = realtime_tools::RealtimePublisher<StateMsg>;
   rclcpp::Publisher<StateMsg>::SharedPtr state_publisher_;
   std::unique_ptr<StatePublisher> realtime_publisher_;
+  StateMsg state_msg_;
 
   template<typename T1, typename T2>
   void vec_to_eigen(const std::vector<T1> & data, T2 & matrix);

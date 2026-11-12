@@ -182,8 +182,8 @@ controller_interface::return_type CartesianStateBroadcaster::update(
     return controller_interface::return_type::ERROR;
   }
 
-  if (realtime_publisher_ && realtime_publisher_->trylock()) {
-    auto & cart_state_msg = realtime_publisher_->msg_;
+  if (realtime_publisher_) {
+    auto & cart_state_msg = state_msg_;
     cart_state_msg.header.stamp = get_node()->now();
     cart_state_msg.link_name = end_effector_name_;
 
@@ -202,7 +202,7 @@ controller_interface::return_type CartesianStateBroadcaster::update(
     cart_state_msg.twist.angular.y = cart_velocities_[4];
     cart_state_msg.twist.angular.z = cart_velocities_[5];
 
-    realtime_publisher_->unlockAndPublish();
+    realtime_publisher_->try_publish(cart_state_msg);
   }
 
   return controller_interface::return_type::OK;

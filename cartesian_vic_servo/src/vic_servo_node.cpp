@@ -440,9 +440,7 @@ bool CartesianVicServo::update()
   // 3) Send controller VIC state
 
   if(vic_->controller_state_to_msg(vic_state_) == controller_interface::return_type::OK) {
-    rt_publisher_vic_state->lock();
-    rt_publisher_vic_state->msg_ = vic_state_;
-    rt_publisher_vic_state->unlockAndPublish();
+    rt_publisher_vic_state->try_publish(vic_state_);
   } else {
     RCLCPP_ERROR(
       get_logger(),
@@ -673,9 +671,7 @@ bool CartesianVicServo::send_twist_command(
     if (const auto msg = moveit_servo::composeTrajectoryMessage(servo_params_,
         joint_cmd_rolling_window_))
     {
-      rt_publisher_joint_cmd_->lock();
-      rt_publisher_joint_cmd_->msg_ = msg.value();
-      rt_publisher_joint_cmd_->unlockAndPublish();
+      rt_publisher_joint_cmd_->try_publish(msg.value());
     }
     if (!joint_cmd_rolling_window_.empty()) {
       const moveit::core::JointModelGroup * joint_model_group = \

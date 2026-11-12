@@ -155,9 +155,7 @@ controller_interface::return_type CartesianVicController::update(
       "Failed to retrieve VIC rule state!");
   } else {
     controller_state_msg_.header.stamp = get_node()->get_clock()->now();
-    state_publisher_->lock();
-    state_publisher_->msg_ = controller_state_msg_;
-    state_publisher_->unlockAndPublish();
+    state_publisher_->try_publish(controller_state_msg_);
   }
   return controller_interface::return_type::OK;
 }
@@ -331,11 +329,6 @@ controller_interface::CallbackReturn CartesianVicController::on_configure(
     "~/status", rclcpp::SystemDefaultsQoS());
   state_publisher_ =
     std::make_unique<realtime_tools::RealtimePublisher<ControllerStateMsg>>(s_publisher_);
-
-  // Initialize state message
-  state_publisher_->lock();
-  // state_publisher_->msg_ = vic_->get_controller_state();
-  state_publisher_->unlock();
 
   // Initialize F/T sensor semantic_component
   if (vic_->parameters_.ft_sensor.is_enabled) {
