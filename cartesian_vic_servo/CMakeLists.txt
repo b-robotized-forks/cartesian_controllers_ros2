@@ -36,7 +36,9 @@ target_include_directories(vic_servo_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
 target_compile_features(vic_servo_node PUBLIC c_std_99 cxx_std_17)  # Require C99 and C++17
-ament_target_dependencies(vic_servo_node PUBLIC ${DEPENDENCIES})
+foreach(dependency IN ITEMS ${DEPENDENCIES})
+  target_link_libraries(vic_servo_node PUBLIC ${${dependency}_TARGETS})
+endforeach()
 
 
 add_executable(
@@ -47,7 +49,9 @@ target_include_directories(demo_twist PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
 target_compile_features(demo_twist PUBLIC c_std_99 cxx_std_17)  # Require C99 and C++17
-ament_target_dependencies(demo_twist PUBLIC ${DEPENDENCIES})
+foreach(dependency IN ITEMS ${DEPENDENCIES})
+  target_link_libraries(demo_twist PUBLIC ${${dependency}_TARGETS})
+endforeach()
 
 install(TARGETS vic_servo_node demo_twist
   DESTINATION lib/${PROJECT_NAME})

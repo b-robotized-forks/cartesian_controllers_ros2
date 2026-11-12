@@ -57,7 +57,9 @@ target_include_directories(cartesian_vic_controller PUBLIC
 target_link_libraries(cartesian_vic_controller PUBLIC
   cartesian_vic_controller_parameters
 )
-ament_target_dependencies(cartesian_vic_controller PUBLIC ${DEPENDENCIES})
+foreach(dependency IN ITEMS ${DEPENDENCIES})
+  target_link_libraries(cartesian_vic_controller PUBLIC ${${dependency}_TARGETS})
+endforeach()
 
 # Causes the visibility macros to use dllexport rather than dllimport,
 # which is appropriate when building the dll but not consuming it.
@@ -80,7 +82,9 @@ target_include_directories(cartesian_vic_rules PUBLIC
 target_link_libraries(cartesian_vic_rules PUBLIC
   cartesian_vic_controller
 )
-ament_target_dependencies(cartesian_vic_rules PUBLIC ${DEPENDENCIES})
+foreach(dependency IN ITEMS ${DEPENDENCIES})
+  target_link_libraries(cartesian_vic_rules PUBLIC ${${dependency}_TARGETS})
+endforeach()
 pluginlib_export_plugin_description_file(cartesian_vic_controller cartesian_vic_rules.xml)
 
 if(0)  # (BUILD_TESTING)
@@ -97,10 +101,10 @@ if(0)  # (BUILD_TESTING)
     test/test_load_controller.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_params.yaml
   )
-  ament_target_dependencies(test_load_controller
-    controller_manager
-    hardware_interface
-    ros2_control_test_assets
+  target_link_libraries(test_load_controller
+    ${controller_manager_TARGETS}
+    ${hardware_interface_TARGETS}
+    ${ros2_control_test_assets_TARGETS}
   )
   #]]
 
@@ -113,11 +117,11 @@ if(0)  # (BUILD_TESTING)
     cartesian_vic_controller
     cartesian_vic_rules
   )
-  ament_target_dependencies(test_controller
-    control_msgs
-    controller_interface
-    hardware_interface
-    ros2_control_test_assets
+  target_link_libraries(test_controller
+    ${control_msgs_TARGETS}
+    ${controller_interface_TARGETS}
+    ${hardware_interface_TARGETS}
+    ${ros2_control_test_assets_TARGETS}
   )
 endif()
 

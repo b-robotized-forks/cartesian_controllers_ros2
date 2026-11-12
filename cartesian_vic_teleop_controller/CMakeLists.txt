@@ -59,7 +59,9 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/include>  # ROS2VersionConfig.h
   $<INSTALL_INTERFACE:include/${PROJECT_NAME}>
 )
-ament_target_dependencies(${PROJECT_NAME} PUBLIC ${DEPENDENCIES})
+foreach(dependency IN ITEMS ${DEPENDENCIES})
+  target_link_libraries(${PROJECT_NAME} PUBLIC ${${dependency}_TARGETS})
+endforeach()
 
 # Causes the visibility macros to use dllexport rather than dllimport,
 # which is appropriate when building the dll but not consuming it.
@@ -80,11 +82,9 @@ target_include_directories(cartesian_vic_teleop_rules PUBLIC
 target_link_libraries(cartesian_vic_teleop_rules PUBLIC
   cartesian_vic_teleop_controller
 )
-ament_target_dependencies(
-  cartesian_vic_teleop_rules
-  PUBLIC
-    ${DEPENDENCIES}
-)
+foreach(dependency IN ITEMS ${DEPENDENCIES})
+  target_link_libraries(cartesian_vic_teleop_rules PUBLIC ${${dependency}_TARGETS})
+endforeach()
 pluginlib_export_plugin_description_file(cartesian_vic_teleop_controller cartesian_vic_teleop_rules.xml)
 
 install(

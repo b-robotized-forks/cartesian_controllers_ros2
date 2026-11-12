@@ -34,17 +34,16 @@ target_include_directories(
   PUBLIC
   include
 )
-ament_target_dependencies(
-  cartesian_state_broadcaster
-  Eigen3
-  cartesian_control_msgs
-  controller_interface
-  hardware_interface
-  pluginlib
-  rclcpp
-  rclcpp_lifecycle
-  realtime_tools
-  kinematics_interface
+target_link_libraries(cartesian_state_broadcaster
+  ${Eigen3_TARGETS}
+  ${cartesian_control_msgs_TARGETS}
+  ${controller_interface_TARGETS}
+  ${hardware_interface_TARGETS}
+  ${pluginlib_TARGETS}
+  ${rclcpp_TARGETS}
+  ${rclcpp_lifecycle_TARGETS}
+  ${realtime_tools_TARGETS}
+  ${kinematics_interface_TARGETS}
 )
 # Causes the visibility macros to use dllexport rather than dllimport,
 # which is appropriate when building the dll but not consuming it.
